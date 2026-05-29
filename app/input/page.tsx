@@ -41,6 +41,8 @@ export default function InputPage() {
   const [stats, setStats] = useState<StatsState>(EMPTY_STATS)
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [existingGameId, setExistingGameId] = useState<number | null>(null)
+  const [loadingExisting, setLoadingExisting] = useState(false)
 
   useEffect(() => {
     async function init() {
@@ -56,6 +58,51 @@ export default function InputPage() {
     init()
   }, [])
 
+  useEffect(() => {
+    if (!selectedMember || !date) {
+      setExistingGameId(null)
+      setStats(EMPTY_STATS)
+      setOpponent('')
+      return
+    }
+    let cancelled = false
+    async function fetchExisting() {
+      setLoadingExisting(true)
+      const { data } = await supabase
+        .from('games')
+        .select('*')
+        .eq('member_name', selectedMember)
+        .eq('date', date)
+        .eq('season', season)
+        .eq('year', Number(year))
+        .maybeSingle()
+      if (cancelled) return
+      if (data) {
+        setExistingGameId(data.id)
+        setStats({
+          pa:  String(data.pa  ?? 0),
+          ab:  String(data.ab  ?? 0),
+          h:   String(data.h   ?? 0),
+          rbi: String(data.rbi ?? 0),
+          hr:  String(data.hr  ?? 0),
+          b2:  String(data.b2  ?? 0),
+          b3:  String(data.b3  ?? 0),
+          bb:  String(data.bb  ?? 0),
+          so:  String(data.so  ?? 0),
+          sb:  String(data.sb  ?? 0),
+        })
+        setOpponent(data.opponent ?? '')
+      } else {
+        setExistingGameId(null)
+        setStats(EMPTY_STATS)
+        setOpponent('')
+      }
+      setLoadingExisting(false)
+    }
+    fetchExisting()
+    return () => { cancelled = true }
+  }, [selectedMember, date, season, year])
+
   function selectMember(name: string) {
     setSelectedMember(name)
     if (name) localStorage.setItem(MEMBER_KEY, name)
@@ -68,7 +115,6 @@ export default function InputPage() {
     setRegistering(true)
     setMessage(null)
 
-    // 既存チェック
     if (members.some(m => m.name === name)) {
       selectMember(name)
       setTab('select')
@@ -107,7 +153,7 @@ export default function InputPage() {
     setSubmitting(true)
     setMessage(null)
 
-    const { error } = await supabase.from('games').insert({
+    const values = {
       member_name: selectedMember,
       season,
       year: Number(year),
@@ -123,14 +169,30 @@ export default function InputPage() {
       bb:  Number(stats.bb)  || 0,
       so:  Number(stats.so)  || 0,
       sb:  Number(stats.sb)  || 0,
-    })
+    }
 
-    if (error) {
-      setMessage({ type: 'error', text: '登録に失敗しました: ' + error.message })
+    let saveError = null
+    if (existingGameId) {
+      const result = await supabase.from('games').update(values).eq('id', existingGameId)
+      saveError = result.error
     } else {
-      setMessage({ type: 'success', text: `✓ ${selectedMember} の成績を登録しました！` })
-      setStats(EMPTY_STATS)
-      setOpponent('')
+      const result = await supabase.from('games').insert(values)
+      saveError = result.error
+    }
+
+    if (saveError) {
+      setMessage({ type: 'error', text: '保存に失敗しました: ' + saveError.message })
+    } else {
+      setMessage({
+        type: 'success',
+        text: existingGameId
+          ? `✓ ${selectedMember} の成績を修正しました！`
+          : `✓ ${selectedMember} の成績を登録しました！`,
+      })
+      if (!existingGameId) {
+        setStats(EMPTY_STATS)
+        setOpponent('')
+      }
     }
     setSubmitting(false)
   }
@@ -278,6 +340,18 @@ export default function InputPage() {
             </div>
           </div>
 
+          {/* 既存データバナー */}
+          {loadingExisting && selectedMember && (
+            <div className="bg-gray-100 rounded-xl p-3 text-sm text-gray-500 text-center">
+              成績データを確認中...
+            </div>
+          )}
+          {!loadingExisting && existingGameId && (
+            <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 text-sm text-yellow-800 font-medium">
+              ✏️ この日の成績が見つかりました。修正して保存できます。
+            </div>
+          )}
+
           {/* 打撃成績グリッド */}
           <div className="bg-white rounded-2xl shadow-md p-4">
             <h2 className="text-sm font-bold text-gray-700 mb-3 pb-2 border-b">打撃成績を入力</h2>
@@ -309,14 +383,16 @@ export default function InputPage() {
           {/* 送信ボタン */}
           <button
             type="submit"
-            disabled={submitting || !selectedMember}
+            disabled={submitting || !selectedMember || loadingExisting}
             className="w-full bg-green-700 text-white py-4 rounded-2xl text-base font-bold shadow-lg active:bg-green-900 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {submitting
-              ? '登録中...'
-              : selectedMember
-                ? `${selectedMember} の成績を登録する`
-                : '名前を選択してください'}
+              ? '保存中...'
+              : !selectedMember
+                ? '名前を選択してください'
+                : existingGameId
+                  ? `${selectedMember} の成績を修正する`
+                  : `${selectedMember} の成績を登録する`}
           </button>
 
           <Link href="/" className="block text-center text-sm text-gray-400 underline">

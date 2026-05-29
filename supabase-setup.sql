@@ -54,8 +54,10 @@ ALTER TABLE games ENABLE ROW LEVEL SECURITY;
 -- gamesテーブル: 全員が読み書き可能
 DROP POLICY IF EXISTS "games_select" ON games;
 DROP POLICY IF EXISTS "games_insert" ON games;
+DROP POLICY IF EXISTS "games_update" ON games;
 DROP POLICY IF EXISTS "games_delete" ON games;
 
 CREATE POLICY "games_select" ON games FOR SELECT TO anon USING (true);
 CREATE POLICY "games_insert" ON games FOR INSERT TO anon WITH CHECK (true);
+CREATE POLICY "games_update" ON games FOR UPDATE TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "games_delete" ON games FOR DELETE TO anon USING (true);
